@@ -1,0 +1,106 @@
+@import "tailwindcss";
+
+@theme {
+  --color-vogue-black: #111111;
+  --color-vogue-white: #fafafa;
+  --color-vogue-gray: #f2f2f2;
+  --color-vogue-dark-gray: #333333;
+  --color-vogue-accent: #d4af37;
+  /* Subtle gold */
+
+  --font-serif: "Playfair Display", serif;
+  --font-sans: "Inter", sans-serif;
+}
+
+@layer base {
+  :root {
+    --bg-color: var(--color-vogue-white);
+    --text-color: var(--color-vogue-black);
+    --sidebar-bg: rgba(255, 255, 255, 0.7);
+    --border-color: #e5e5e5;
+    --card-bg: #ffffff;
+    --card-shadow: 0 4px 20px rgba(0, 0, 0, 0.05);
+  }
+
+  .dark {
+    --bg-color: var(--color-vogue-black);
+    --text-color: var(--color-vogue-white);
+    --sidebar-bg: rgba(20, 20, 20, 0.8);
+    --border-color: #333;
+    --card-bg: #1a1a1a;
+    --card-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+  }
+
+  body {
+    background-color: var(--bg-color);
+    color: var(--text-color);
+    font-family: var(--font-sans);
+    transition: background-color 0.3s ease, color 0.3s ease;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
+    font-family: var(--font-serif);
+    font-weight: 600;
+  }
+}
+
+@layer utilities {
+  .glass {
+    background: var(--sidebar-bg);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border-right: 1px solid var(--border-color);
+  }
+
+  .shimmer {
+    background: linear-gradient(90deg,
+        rgba(255, 255, 255, 0) 0%,
+        rgba(255, 255, 255, 0.2) 50%,
+        rgba(255, 255, 255, 0) 100%);
+    background-size: 200% 100%;
+    animation: shimmer 2s infinite;
+  }
+
+  .dark .shimmer {
+    background: linear-gradient(90deg,
+        rgba(255, 255, 255, 0) 0%,
+        rgba(255, 255, 255, 0.05) 50%,
+        rgba(255, 255, 255, 0) 100%);
+    background-size: 200% 100%;
+    animation: shimmer 2s infinite;
+  }
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+/* Hide scrollbar for clean look */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--border-color);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-vogue-dark-gray);
+}
