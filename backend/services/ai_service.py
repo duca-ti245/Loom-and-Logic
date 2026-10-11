@@ -129,7 +129,8 @@ def generate_design_concept(prompt: str, gender: str = "women", person_image_pat
     import time
     import json
     import requests
-    from services.tryon_service import analyze_person_image, create_tryon_composite
+    from services.tryon_service import analyze_person_image, process_single_variation
+    import concurrent.futures
 
     # 1. Search the web for fashion trends context
     context = ""
@@ -297,27 +298,44 @@ def generate_design_concept(prompt: str, gender: str = "women", person_image_pat
     if not use_gemini:
         image_urls = _generate_pollinations_fallback(enhanced_prompt, prompt_extensions, gender, person_context=person_context)
 
-    # 4. Merge image URLs and specs, including virtual try-on composites if person image is uploaded
-    output_variations = []
-    for idx, var in enumerate(variations_data[:4]):
-        img_url = image_urls[idx] if idx < len(image_urls) else image_urls[-1]
-        title = var.get("title", f"Variation {idx + 1}")
-        
-        tryon_url = None
-        if person_image_path and os.path.exists(person_image_path):
-            tryon_url = create_tryon_composite(person_image_path, img_url, title=title)
-            
-        output_variations.append({
-            "image": img_url,
-            "tryon_image": tryon_url,
-            "details": {
-                "title": title,
-                "fabric": var.get("fabric", ""),
-                "silhouette": var.get("silhouette", ""),
-                "details": var.get("details", ""),
-                "styling": var.get("styling", "")
+    # 4. Merge image URLs and specs.
+    # If a person image is uploaded, process all 4 variations in PARALLEL:
+    #   - Download garment image (Pollinations is lazy, needs retries)
+    #   - Generate AI image of PERSON WEARING the garment
+    #   - Create premium presentation composite
+    paired_vars = list(zip(range(len(variations_data[:4])), variations_data[:4]))
+    garment_urls = [image_urls[i] if i < len(image_urls) else image_urls[-1] for i in range(len(paired_vars))]
+
+    if person_image_path and os.path.exists(person_image_path):
+        print(f"Processing {len(paired_vars)} try-on variations in parallel...")
+        with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
+            futures = [
+                executor.submit(
+                    process_single_variation,
+                    idx, var, garment_urls[idx], person_image_path, gender
+                )
+                for idx, var in paired_vars
+            ]
+            output_variations = [f.result() for f in concurrent.futures.as_completed(futures)]
+        # Re-sort by index since as_completed doesn't preserve order
+        output_variations.sort(key=lambda v: next(
+            (i for i, var in paired_vars if var.get('title', f'Variation {i+1}') == v['details']['title']), 0
+        ))
+    else:
+        output_variations = [
+            {
+                "image": garment_urls[idx],
+                "tryon_image": None,
+                "details": {
+                    "title": var.get("title", f"Variation {idx + 1}"),
+                    "fabric": var.get("fabric", ""),
+                    "silhouette": var.get("silhouette", ""),
+                    "details": var.get("details", ""),
+                    "styling": var.get("styling", ""),
+                }
             }
-        })
+            for idx, var in paired_vars
+        ]
 
     return {
         "variations": output_variations,
