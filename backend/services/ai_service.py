@@ -41,7 +41,7 @@ def enhance_prompt_with_web_search(prompt: str, gender: str = "women") -> str:
     # Fallback to original if anything fails
     return prompt
 
-def _generate_pollinations_fallback(enhanced_prompt: str, prompt_extensions: List[str], gender: str = "women") -> List[str]:
+def _generate_pollinations_fallback(enhanced_prompt: str, prompt_extensions: List[str], gender: str = "women", person_context: str = "") -> List[str]:
     """
     Returns direct image URLs from Pollinations.ai for the 4 prompt extensions.
     This avoids sequential backend downloads, prevents 429 rate limits, and provides instant responses.
@@ -58,7 +58,10 @@ def _generate_pollinations_fallback(enhanced_prompt: str, prompt_extensions: Lis
     models = ["flux", "flux", "flux", "flux"]
     image_urls = []
     
-    gender_prefix = "men's fashion design on a male model" if gender == "men" else ("unisex fashion design" if gender == "unisex" else "women's fashion design on a female model")
+    if person_context:
+        gender_prefix = f"bespoke fashion design worn by person model ({person_context})"
+    else:
+        gender_prefix = "men's fashion design on a male model" if gender == "men" else ("unisex fashion design" if gender == "unisex" else "women's fashion design on a female model")
     
     for idx, ext in enumerate(prompt_extensions[:4]):
         model = models[idx]
@@ -111,11 +114,12 @@ def _generate_gemini_images(enhanced_prompt: str, prompt_extensions: List[str], 
         
     return image_urls
 
-def generate_design_concept(prompt: str, gender: str = "women") -> dict:
+def generate_design_concept(prompt: str, gender: str = "women", person_image_path: str = None) -> dict:
     """
     1. Enhances the fashion design prompt using web context and queries LLM to get a structured JSON of 4 variations.
-    2. Generates distinct images for each of the 4 variations using the respective prompt_extensions.
-    3. Saves the images locally and returns the complete structured concept dataset.
+    2. Incorporates person model specifications if person_image_path is provided.
+    3. Generates distinct images for each variation and creates virtual try-on fitting composites.
+    4. Saves the images locally and returns the complete structured concept dataset.
     """
     import urllib.parse
     import re
@@ -125,6 +129,7 @@ def generate_design_concept(prompt: str, gender: str = "women") -> dict:
     import time
     import json
     import requests
+    from services.tryon_service import analyze_person_image, create_tryon_composite
 
     # 1. Search the web for fashion trends context
     context = ""
@@ -270,6 +275,13 @@ def generate_design_concept(prompt: str, gender: str = "women") -> dict:
 
     prompt_extensions = [var.get("prompt_extension", "") for var in variations_data]
 
+    # Analyze person image if provided
+    person_context = ""
+    if person_image_path and os.path.exists(person_image_path):
+        p_info = analyze_person_image(person_image_path)
+        palette_str = ", ".join(p_info.get("palette", []))
+        person_context = f"proportioned for model in portrait, {p_info.get('lighting')}, harmonizing with palette {palette_str}"
+
     # 3. Generate distinct images for each variation
     api_key = os.getenv("GEMINI_API_KEY")
     use_gemini = api_key and "your_gemini_api_key_here" not in api_key
@@ -283,16 +295,23 @@ def generate_design_concept(prompt: str, gender: str = "women") -> dict:
             use_gemini = False
             
     if not use_gemini:
-        image_urls = _generate_pollinations_fallback(enhanced_prompt, prompt_extensions, gender)
+        image_urls = _generate_pollinations_fallback(enhanced_prompt, prompt_extensions, gender, person_context=person_context)
 
-    # 4. Merge image URLs and specs
+    # 4. Merge image URLs and specs, including virtual try-on composites if person image is uploaded
     output_variations = []
     for idx, var in enumerate(variations_data[:4]):
         img_url = image_urls[idx] if idx < len(image_urls) else image_urls[-1]
+        title = var.get("title", f"Variation {idx + 1}")
+        
+        tryon_url = None
+        if person_image_path and os.path.exists(person_image_path):
+            tryon_url = create_tryon_composite(person_image_path, img_url, title=title)
+            
         output_variations.append({
             "image": img_url,
+            "tryon_image": tryon_url,
             "details": {
-                "title": var.get("title", ""),
+                "title": title,
                 "fabric": var.get("fabric", ""),
                 "silhouette": var.get("silhouette", ""),
                 "details": var.get("details", ""),

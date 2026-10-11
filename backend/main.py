@@ -29,6 +29,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+from typing import List, Optional
+from fastapi import Request
+
 class PromptRequest(BaseModel):
     prompt: str
     gender: str = "women"
@@ -42,12 +45,14 @@ class VariationDetails(BaseModel):
 
 class VariationResponse(BaseModel):
     image: str
+    tryon_image: Optional[str] = None
     details: VariationDetails
 
 class GenerationResponse(BaseModel):
     variations: List[VariationResponse]
     enhanced_prompt: str
     colors: List[str]
+    person_image: Optional[str] = None
 
 class ColorResponse(BaseModel):
     colors: List[str]
@@ -57,12 +62,39 @@ def read_root():
     return {"status": "Loom & Logic API is running."}
 
 @app.post("/generate", response_model=GenerationResponse)
-def generate_designs(request: PromptRequest):
+async def generate_designs(request: Request):
     """
-    Accepts a text prompt, enhances it with web search, generates 4 distinct variations
-    along with their structured specs/details, and returns them.
+    Accepts prompt and gender via JSON or multipart/form-data (with optional person_image).
+    Generates 4 distinct variations tailored to trends and optionally to the uploaded model.
     """
-    concept = generate_design_concept(request.prompt, request.gender)
+    content_type = request.headers.get("content-type", "")
+    person_image_path = None
+    person_image_url = None
+    
+    if "multipart/form-data" in content_type:
+        form = await request.form()
+        prompt = str(form.get("prompt", ""))
+        gender = str(form.get("gender", "women"))
+        uploaded_file = form.get("person_image")
+        
+        if uploaded_file and hasattr(uploaded_file, "filename") and uploaded_file.filename:
+            upload_dir = os.path.join("static", "uploads")
+            os.makedirs(upload_dir, exist_ok=True)
+            import uuid
+            ext = os.path.splitext(uploaded_file.filename)[1] or ".jpg"
+            filename = f"person_{uuid.uuid4().hex}{ext}"
+            person_image_path = os.path.join(upload_dir, filename)
+            
+            content = await uploaded_file.read()
+            with open(person_image_path, "wb") as f:
+                f.write(content)
+            person_image_url = f"http://localhost:8000/static/uploads/{filename}"
+    else:
+        body = await request.json()
+        prompt = body.get("prompt", "")
+        gender = body.get("gender", "women")
+
+    concept = generate_design_concept(prompt, gender, person_image_path=person_image_path)
     variations = concept.get("variations", [])
     enhanced_prompt = concept.get("enhanced_prompt", "")
     
@@ -86,7 +118,12 @@ def generate_designs(request: PromptRequest):
         except Exception as e:
             print(f"Failed to extract colors: {e}")
 
-    return {"variations": variations, "enhanced_prompt": enhanced_prompt, "colors": colors}
+    return {
+        "variations": variations,
+        "enhanced_prompt": enhanced_prompt,
+        "colors": colors,
+        "person_image": person_image_url
+    }
 
 @app.post("/extract-palette", response_model=ColorResponse)
 async def get_color_palette(file: UploadFile = File(...)):
